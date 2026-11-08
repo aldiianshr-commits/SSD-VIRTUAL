@@ -73,7 +73,7 @@ public sealed class TeraBoxLoginWindow : Window
             hosts.Insert(0, u.Scheme + "://" + u.Host);
         foreach (var h in hosts.Distinct())
         {
-            var cookies = await _web.CoreWebView2.CookieManager.GetCookiesAsync(h);
+            var cookies = await _web.CoreWebView2!.CookieManager.GetCookiesAsync(h);
             foreach (var c in cookies)
                 if (!all.Any(x => x.Name == c.Name && x.Domain == c.Domain)) all.Add(c);
         }

@@ -89,7 +89,7 @@ public sealed class SettingsPage : PageBase
         var interval = Ui.Input(s.SyncIntervalSeconds.ToString(), 100);
         var quiet = Ui.Input(s.UploadQuietSeconds.ToString(), 100);
         var window = Ui.Input(s.UploadWindow, 160);
-        var readAhead = Ui.Input(s.ReadAheadMiB.ToString(), 100);
+        var readAhead = Ui.Input(s.ReadAheadMaxMiB.ToString(), 100);
         root.Children.Add(Ui.Card(Ui.Stack(Ui.Heading(Loc.T("Settings.Transfers")),
             Ui.Wrap(
                 Pad(Ui.Field(Loc.T("Settings.Parallel"), parallel)),
@@ -161,7 +161,7 @@ public sealed class SettingsPage : PageBase
             s.SyncIntervalSeconds = ParseInt(interval.Text, 60, 15, 86400);
             s.UploadQuietSeconds = ParseInt(quiet.Text, 5, 0, 3600);
             s.UploadWindow = window.Text.Trim();
-            s.ReadAheadMiB = ParseInt(readAhead.Text, 32, 1, 512);
+            s.ReadAheadMaxMiB = ParseInt(readAhead.Text, 32, 1, 512);
             s.Notifications = notify.IsChecked == true;
             s.LogLevel = logLevel.Selected() as string ?? "Info";
             s.GoogleClientId = clientId.Text.Trim();

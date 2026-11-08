@@ -314,7 +314,7 @@ public sealed class SyncEngine : IDisposable
                 {
                     var siblings = await _v.RemoteAsync(c => _v.Provider.ListAsync(parentRef, c), ct).ConfigureAwait(false);
                     created = siblings.FirstOrDefault(s => s.IsDirectory && string.Equals(s.Name, name, StringComparison.OrdinalIgnoreCase))
-                              ?? throw ex;
+                              ?? throw new CloudException(CloudErrorKind.AlreadyExists, ex.Message, ex.HttpStatus, ex);
                 }
                 lock (_v.Store.Gate)
                 {
