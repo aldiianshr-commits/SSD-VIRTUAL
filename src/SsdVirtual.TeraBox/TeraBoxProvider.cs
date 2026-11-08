@@ -177,7 +177,7 @@ public sealed partial class TeraBoxProvider : ICloudProvider
             Name = name,
             IsDirectory = GetLong(f, "isdir") == 1,
             Size = GetLong(f, "size"),
-            ModifiedUtc = mtime > 0 ? DateTimeOffset.FromUnixTimeSeconds(mtime).UtcDateTime : DateTime.UtcNow,
+            ModifiedUtc = mtime > 0 ? DateTimeOffset.FromUnixTimeSeconds(mtime).UtcDateTime : default,
             CreatedUtc = ctime > 0 ? DateTimeOffset.FromUnixTimeSeconds(ctime).UtcDateTime : DateTime.UtcNow,
         };
     }
@@ -502,6 +502,22 @@ public sealed partial class TeraBoxProvider : ICloudProvider
         if (item.Size == 0) item.Size = request.Length;
         _links.TryRemove(item.Id, out _);
         return item;
+    }
+
+    public async Task<CloudItem?> GetItemAsync(RemoteRef item, CancellationToken ct)
+    {
+        try
+        {
+            using var doc = await CallAsync(HttpMethod.Get, "/api/filemetas", new Dictionary<string, string>
+            {
+                ["target"] = JsonSerializer.Serialize(new[] { item.Path }),
+            }, null, ct).ConfigureAwait(false);
+            if (!doc.RootElement.TryGetProperty("info", out var info) || info.ValueKind != JsonValueKind.Array || info.GetArrayLength() == 0) return null;
+            var it = ParseItem(info[0]);
+            if (it.Path.Length == 0) it.Path = item.Path;
+            return it;
+        }
+        catch (CloudException ex) when (ex.Kind == CloudErrorKind.NotFound) { return null; }
     }
 
     public Task<string> GetChangeCursorAsync(CancellationToken ct) => throw new CloudException(CloudErrorKind.Unsupported, "TeraBox has no change feed; SsdVirtual polls folders instead.");

@@ -406,6 +406,17 @@ public sealed class GoogleDriveProvider : ICloudProvider
         return dash >= 0 && long.TryParse(v[(dash + 1)..], out var end) ? end : -1;
     }
 
+    public async Task<CloudItem?> GetItemAsync(RemoteRef item, CancellationToken ct)
+    {
+        try
+        {
+            using var doc = await GetJsonAsync(Api + "/files/" + Uri.EscapeDataString(item.Id) + "?fields=" + FileFields, ct).ConfigureAwait(false);
+            var it = ParseItem(doc.RootElement);
+            return it.Trashed ? null : it;
+        }
+        catch (CloudException ex) when (ex.Kind == CloudErrorKind.NotFound) { return null; }
+    }
+
     public async Task<string> GetChangeCursorAsync(CancellationToken ct)
     {
         using var doc = await GetJsonAsync(Api + "/changes/startPageToken", ct).ConfigureAwait(false);

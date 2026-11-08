@@ -157,6 +157,14 @@ public sealed class LocalFolderProvider : ICloudProvider
         return Convert.ToHexString(MD5.HashData(fs)).ToLowerInvariant();
     }
 
+    public Task<CloudItem?> GetItemAsync(RemoteRef item, CancellationToken ct)
+    {
+        Check();
+        var full = Full(item.Path);
+        CloudItem? r = File.Exists(full) ? Item(new FileInfo(full)) : Directory.Exists(full) ? Item(new DirectoryInfo(full)) : null;
+        return Task.FromResult(r);
+    }
+
     public Task<string> GetChangeCursorAsync(CancellationToken ct) => throw new CloudException(CloudErrorKind.Unsupported, "No change feed.");
     public Task<ChangeBatch> GetChangesAsync(string cursor, CancellationToken ct) => throw new CloudException(CloudErrorKind.Unsupported, "No change feed.");
     public void Dispose() { }

@@ -68,7 +68,9 @@ public sealed unsafe class CloudFileSystem : FileSystemBase
         host.PersistentAcls = true;
         host.PostCleanupWhenModifiedOnly = false;
         host.PassQueryDirectoryPattern = false;
-        host.FlushAndPurgeOnCleanup = false;
+        // Written data must reach this file system before the last handle closes, otherwise an upload could
+        // start before the Windows cache manager lazily writes the data back.
+        host.FlushAndPurgeOnCleanup = true;
         host.VolumeCreationTime = _v.Store.Root.CreationTime != 0 ? _v.Store.Root.CreationTime : FileTime.Now();
         host.VolumeSerialNumber = (uint)StableHash(_v.Account.Id);
         // Reported as NTFS for maximum application compatibility (game launchers check the file system name).

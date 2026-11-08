@@ -409,6 +409,37 @@ public sealed class Volume : IDisposable
     /// Both the local file and the cloud file changed. The cloud version keeps the original name; the local
     /// version is renamed to "name (Conflict yyyy-MM-dd HHmm).ext" and uploaded as a separate file.
     /// </summary>
+    /// <summary>
+    /// Called right before replacing the cloud copy of <paramref name="node"/>. Returns true if the cloud copy is
+    /// still the one this node was based on. If somebody else changed or deleted it meanwhile, the local version
+    /// becomes a new file (a conflict copy, or simply a re-created file) and false is returned.
+    /// </summary>
+    public bool PrepareOverwrite(Node node, CloudItem? current)
+    {
+        var changes = new List<RemoteChange>();
+        lock (Store.Gate)
+        {
+            if (node.Removed || !node.HasRemote) return false;
+            if (current == null)
+            {
+                Store.DeleteUploadSession(node.Id);
+                Store.SetRemoteId(node, "");
+                node.RemoteParentId = 0;
+                node.RemoteName = node.Name;
+                Store.Save(node);
+                return false;
+            }
+            bool changed = current.Md5.Length > 0 && node.RemoteHash.Length > 0
+                ? !string.Equals(current.Md5, node.RemoteHash, StringComparison.OrdinalIgnoreCase)
+                : node.RemoteModifiedTicks != 0 && Math.Abs(current.ModifiedUtc.Ticks - node.RemoteModifiedTicks) > TimeSpan.TicksPerSecond * 2;
+            if (!changed) return true;
+            Store.DeleteUploadSession(node.Id);
+            CreateConflictCopy(node, current, changes);
+        }
+        AfterRemoteUpdate(changes, new List<(Node, long)>(), new List<Node>());
+        return false;
+    }
+
     private void CreateConflictCopy(Node local, CloudItem cloud, List<RemoteChange> changes)
     {
         var dir = local.Parent!;

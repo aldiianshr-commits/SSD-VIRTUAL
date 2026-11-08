@@ -93,6 +93,8 @@ public interface ICloudProvider : IDisposable
     /// <summary>Reads exactly min(buffer.Length, fileSize - offset) bytes starting at <paramref name="offset"/>.</summary>
     Task<int> ReadAsync(RemoteRef item, long offset, Memory<byte> buffer, long fileSize, CancellationToken ct);
     Task<CloudItem> UploadAsync(UploadRequest request, CancellationToken ct);
+    /// <summary>Current metadata of an item, or null when it no longer exists.</summary>
+    Task<CloudItem?> GetItemAsync(RemoteRef item, CancellationToken ct);
     Task<string> GetChangeCursorAsync(CancellationToken ct);
     Task<ChangeBatch> GetChangesAsync(string cursor, CancellationToken ct);
 }

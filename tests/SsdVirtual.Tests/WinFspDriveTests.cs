@@ -126,7 +126,11 @@ public class WinFspDriveTests : IDisposable
         var many = root + @"Games\Small";
         Directory.CreateDirectory(many);
         for (int i = 0; i < 1500; i++) File.WriteAllText(Path.Combine(many, $"asset{i:0000}.dat"), new string('x', i % 300));
-        Assert.Equal(1500, Directory.GetFiles(many).Length);
+        var listed = Directory.GetFiles(many).Select(Path.GetFileName).ToList();
+        var expectedNames = Enumerable.Range(0, 1500).Select(i => $"asset{i:0000}.dat").ToHashSet();
+        foreach (var extra in listed.Where(n => !expectedNames.Contains(n!))) _out.WriteLine("unexpected: " + extra);
+        foreach (var dup in listed.GroupBy(n => n).Where(g => g.Count() > 1)) _out.WriteLine("duplicate: " + dup.Key);
+        Assert.True(listed.Count == 1500, $"listed {listed.Count}: extra=[{string.Join(",", listed.Where(n => !expectedNames.Contains(n!)))}] dups=[{string.Join(",", listed.GroupBy(n => n).Where(g => g.Count() > 1).Select(g => g.Key))}]");
 
         // Everything reaches the cloud.
         Assert.True(await drive.Sync.WaitIdleAsync(TimeSpan.FromMinutes(5)), "sync did not finish");

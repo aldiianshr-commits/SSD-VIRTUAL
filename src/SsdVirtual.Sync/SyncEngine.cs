@@ -387,7 +387,19 @@ public sealed class SyncEngine : IDisposable
             entry.State = "Preparing";
             // A modified cloud file may still have blocks that were never downloaded: fetch them first.
             await _v.Cache.EnsureFullyCachedAsync(node, size, null, linked.Token).ConfigureAwait(false);
-            if (!existing) await EnsureRemoteFolderAsync(parent, linked.Token).ConfigureAwait(false);
+            if (existing)
+            {
+                // Never overwrite a cloud version we have not seen: check it right before uploading.
+                RemoteRef current;
+                lock (_v.Store.Gate) current = _v.RefOf(node);
+                var remote = await _v.RemoteAsync(c => _v.Provider.GetItemAsync(current, c), linked.Token).ConfigureAwait(false);
+                if (!_v.PrepareOverwrite(node, remote)) existing = false;
+            }
+            if (!existing)
+            {
+                lock (_v.Store.Gate) parent = node.Parent ?? parent;
+                await EnsureRemoteFolderAsync(parent, linked.Token).ConfigureAwait(false);
+            }
 
             RemoteRef parentRef, nodeRef;
             string parentPath, name;
