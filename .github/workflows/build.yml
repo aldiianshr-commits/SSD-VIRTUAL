@@ -135,7 +135,8 @@ jobs:
       - name: Installer smoke test (install, service running, uninstall)
         shell: pwsh
         run: |
-          $p = Start-Process dist\SsdVirtual-Setup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/LOG=install.log' -Wait -PassThru
+          $p = Start-Process dist\SsdVirtual-Setup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/LOG=install.log' -PassThru
+          if (-not $p.WaitForExit(600000)) { "::error title=Setup::Setup did not finish within 10 minutes"; exit 1 }
           if ($p.ExitCode -ne 0) { $t = ((Get-Content install.log -Tail 30) -join '%0A'); "::error title=Setup failed $($p.ExitCode)::$t"; exit 1 }
           Start-Sleep 5
           $svc = Get-Service SsdVirtualService
@@ -143,9 +144,12 @@ jobs:
           if ($svc.Status -ne 'Running') { $t = ((Get-Content "$env:ProgramData\SsdVirtual\logs\*.log" -ErrorAction SilentlyContinue | Select-Object -Last 30) -join '%0A'); $e = ((Get-WinEvent -LogName Application -MaxEvents 10 -ErrorAction SilentlyContinue | Where-Object ProviderName -match '.NET|Application Error|SsdVirtual' | ForEach-Object { $_.Message }) -join ' | ') -replace "`r",'' -replace "`n",'%0A'; "::error title=Service not running::$t%0A$e"; exit 1 }
           if (-not (Test-Path "${env:ProgramFiles}\SsdVirtual\SsdVirtual.exe")) { throw "App not installed" }
           $un = "${env:ProgramFiles}\SsdVirtual\unins000.exe"
-          $p = Start-Process $un -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait -PassThru
-          Start-Sleep 3
-          if (Get-Service SsdVirtualService -ErrorAction SilentlyContinue) { throw "Service still registered after uninstall" }
+          $p = Start-Process $un -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -PassThru
+          if (-not $p.WaitForExit(180000)) { "::error title=Uninstall::Uninstaller did not finish within 3 minutes"; exit 1 }
+          # unins000.exe re-launches itself from %TEMP%; wait for the real work to finish.
+          $deadline = (Get-Date).AddMinutes(3)
+          while ((Get-Service SsdVirtualService -ErrorAction SilentlyContinue) -and (Get-Date) -lt $deadline) { Start-Sleep 3 }
+          if (Get-Service SsdVirtualService -ErrorAction SilentlyContinue) { "::error title=Uninstall::Service still registered after uninstall"; exit 1 }
           "::notice title=Installer::Uninstall removed the service"
 
       - uses: actions/upload-artifact@v4
