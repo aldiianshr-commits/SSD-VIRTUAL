@@ -17,6 +17,8 @@ public sealed class Node
     public string RemoteId = "";
     /// <summary>Node id of the directory the item currently lives in, in the cloud (may lag a local move until synced).</summary>
     public long RemoteParentId;
+    /// <summary>Size of the cloud copy as last seen (independent of local, not yet uploaded changes).</summary>
+    public long RemoteSize;
     public string RemoteHash = "";
     public long RemoteModifiedTicks;
     public ulong CreationTime, LastAccessTime, LastWriteTime, ChangeTime;
@@ -104,11 +106,12 @@ public sealed class MetadataStore : IDisposable
     {
         Exec(@"CREATE TABLE IF NOT EXISTS nodes(
             id INTEGER PRIMARY KEY, parent_id INTEGER NOT NULL, name TEXT NOT NULL, remote_name TEXT NOT NULL,
-            is_dir INTEGER NOT NULL, size INTEGER NOT NULL, remote_id TEXT NOT NULL, remote_parent INTEGER NOT NULL, remote_hash TEXT NOT NULL,
+            is_dir INTEGER NOT NULL, size INTEGER NOT NULL, remote_id TEXT NOT NULL, remote_parent INTEGER NOT NULL, remote_size INTEGER NOT NULL DEFAULT 0, remote_hash TEXT NOT NULL,
             remote_mtime INTEGER NOT NULL, ctime INTEGER NOT NULL, atime INTEGER NOT NULL, mtime INTEGER NOT NULL,
             chtime INTEGER NOT NULL, attrs INTEGER NOT NULL, version INTEGER NOT NULL, uploaded_version INTEGER NOT NULL,
             children_loaded INTEGER NOT NULL, pinned INTEGER NOT NULL);");
         Exec("CREATE INDEX IF NOT EXISTS ix_nodes_parent ON nodes(parent_id);");
+        try { Exec("ALTER TABLE nodes ADD COLUMN remote_size INTEGER NOT NULL DEFAULT 0;"); } catch (SqliteException) { /* already present */ }
         Exec(@"CREATE TABLE IF NOT EXISTS ops(
             id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, node_id INTEGER NOT NULL, data TEXT NOT NULL,
             state TEXT NOT NULL, attempts INTEGER NOT NULL, last_error TEXT NOT NULL, next_attempt INTEGER NOT NULL,
@@ -126,7 +129,7 @@ public sealed class MetadataStore : IDisposable
         var all = new List<Node>();
         using (var cmd = Cmd())
         {
-            cmd.CommandText = "SELECT id,parent_id,name,remote_name,is_dir,size,remote_id,remote_hash,remote_mtime,ctime,atime,mtime,chtime,attrs,version,uploaded_version,children_loaded,pinned,remote_parent FROM nodes";
+            cmd.CommandText = "SELECT id,parent_id,name,remote_name,is_dir,size,remote_id,remote_hash,remote_mtime,ctime,atime,mtime,chtime,attrs,version,uploaded_version,children_loaded,pinned,remote_parent,remote_size FROM nodes";
             using var r = cmd.ExecuteReader();
             while (r.Read())
             {
@@ -136,7 +139,7 @@ public sealed class MetadataStore : IDisposable
                     IsDirectory = r.GetInt64(4) != 0, Size = r.GetInt64(5), RemoteId = r.GetString(6), RemoteHash = r.GetString(7),
                     RemoteModifiedTicks = r.GetInt64(8), CreationTime = (ulong)r.GetInt64(9), LastAccessTime = (ulong)r.GetInt64(10),
                     LastWriteTime = (ulong)r.GetInt64(11), ChangeTime = (ulong)r.GetInt64(12), Attributes = (uint)r.GetInt64(13),
-                    Version = r.GetInt64(14), UploadedVersion = r.GetInt64(15), ChildrenLoadedTicks = r.GetInt64(16), Pinned = r.GetInt64(17) != 0, RemoteParentId = r.GetInt64(18),
+                    Version = r.GetInt64(14), UploadedVersion = r.GetInt64(15), ChildrenLoadedTicks = r.GetInt64(16), Pinned = r.GetInt64(17) != 0, RemoteParentId = r.GetInt64(18), RemoteSize = r.GetInt64(19),
                 });
             }
         }
@@ -327,13 +330,13 @@ public sealed class MetadataStore : IDisposable
         return list;
     }
 
-    private void Insert(Node n) => Exec(@"INSERT INTO nodes(id,parent_id,name,remote_name,is_dir,size,remote_id,remote_parent,remote_hash,remote_mtime,ctime,atime,mtime,chtime,attrs,version,uploaded_version,children_loaded,pinned)
-        VALUES($id,$p,$n,$rn,$d,$s,$rid,$rp,$rh,$rm,$c,$a,$m,$ch,$at,$v,$uv,$cl,$pin)", NodeParams(n));
+    private void Insert(Node n) => Exec(@"INSERT INTO nodes(id,parent_id,name,remote_name,is_dir,size,remote_id,remote_parent,remote_size,remote_hash,remote_mtime,ctime,atime,mtime,chtime,attrs,version,uploaded_version,children_loaded,pinned)
+        VALUES($id,$p,$n,$rn,$d,$s,$rid,$rp,$rsz,$rh,$rm,$c,$a,$m,$ch,$at,$v,$uv,$cl,$pin)", NodeParams(n));
 
     public void Save(Node n)
     {
         if (n.Removed) return;
-        Exec(@"UPDATE nodes SET parent_id=$p,name=$n,remote_name=$rn,is_dir=$d,size=$s,remote_id=$rid,remote_parent=$rp,remote_hash=$rh,remote_mtime=$rm,
+        Exec(@"UPDATE nodes SET parent_id=$p,name=$n,remote_name=$rn,is_dir=$d,size=$s,remote_id=$rid,remote_parent=$rp,remote_size=$rsz,remote_hash=$rh,remote_mtime=$rm,
             ctime=$c,atime=$a,mtime=$m,chtime=$ch,attrs=$at,version=$v,uploaded_version=$uv,children_loaded=$cl,pinned=$pin WHERE id=$id", NodeParams(n));
     }
 
@@ -355,7 +358,7 @@ public sealed class MetadataStore : IDisposable
     private static (string, object?)[] NodeParams(Node n) => new (string, object?)[]
     {
         ("$id", n.Id), ("$p", n.ParentId), ("$n", n.Name), ("$rn", n.RemoteName), ("$d", n.IsDirectory ? 1 : 0), ("$s", n.Size),
-        ("$rid", n.RemoteId), ("$rp", n.RemoteParentId), ("$rh", n.RemoteHash), ("$rm", n.RemoteModifiedTicks), ("$c", (long)n.CreationTime),
+        ("$rid", n.RemoteId), ("$rp", n.RemoteParentId), ("$rsz", n.RemoteSize), ("$rh", n.RemoteHash), ("$rm", n.RemoteModifiedTicks), ("$c", (long)n.CreationTime),
         ("$a", (long)n.LastAccessTime), ("$m", (long)n.LastWriteTime), ("$ch", (long)n.ChangeTime), ("$at", (long)n.Attributes),
         ("$v", n.Version), ("$uv", n.UploadedVersion), ("$cl", n.ChildrenLoadedTicks), ("$pin", n.Pinned ? 1 : 0),
     };

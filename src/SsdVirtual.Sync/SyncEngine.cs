@@ -465,6 +465,7 @@ public sealed class SyncEngine : IDisposable
                         node.RemoteName = item.Name.Length > 0 ? item.Name : name;
                     }
                     node.RemoteHash = item.Md5;
+                    node.RemoteSize = size;
                     node.RemoteModifiedTicks = item.ModifiedUtc.Ticks;
                     if (node.Version == version) node.UploadedVersion = version;
                     _v.Store.Save(node);

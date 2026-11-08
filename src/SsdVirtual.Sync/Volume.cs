@@ -330,6 +330,7 @@ public sealed class Volume : IDisposable
                         n.RemoteName = item.Name;
                         n.RemoteParentId = dir.Id;
                         n.Size = item.IsDirectory ? 0 : item.Size;
+                        n.RemoteSize = n.Size;
                         n.RemoteHash = item.Md5;
                         n.RemoteModifiedTicks = item.ModifiedUtc.Ticks;
                         n.CreationTime = FileTime.FromUtc(item.CreatedUtc);
@@ -388,8 +389,7 @@ public sealed class Volume : IDisposable
 
     private void UpdateContentFromCloud(Node n, CloudItem item, List<RemoteChange> changes, List<(Node, long)> invalidate)
     {
-        bool changed = n.Size != item.Size || (item.Md5.Length > 0 && n.RemoteHash.Length > 0 && item.Md5 != n.RemoteHash)
-                       || (item.Md5.Length == 0 && Math.Abs(n.RemoteModifiedTicks - item.ModifiedUtc.Ticks) > TimeSpan.TicksPerSecond * 2 && n.RemoteModifiedTicks != 0);
+        bool changed = CloudCopyChanged(n, item);
         if (!changed) return;
         if (n.IsDirty)
         {
@@ -397,6 +397,7 @@ public sealed class Volume : IDisposable
             return;
         }
         n.Size = item.Size;
+        n.RemoteSize = item.Size;
         n.RemoteHash = item.Md5;
         n.RemoteModifiedTicks = item.ModifiedUtc.Ticks;
         n.LastWriteTime = n.ChangeTime = FileTime.FromUtc(item.ModifiedUtc);
@@ -429,15 +430,23 @@ public sealed class Volume : IDisposable
                 Store.Save(node);
                 return false;
             }
-            bool changed = current.Md5.Length > 0 && node.RemoteHash.Length > 0
-                ? !string.Equals(current.Md5, node.RemoteHash, StringComparison.OrdinalIgnoreCase)
-                : node.RemoteModifiedTicks != 0 && Math.Abs(current.ModifiedUtc.Ticks - node.RemoteModifiedTicks) > TimeSpan.TicksPerSecond * 2;
-            if (!changed) return true;
+            if (!CloudCopyChanged(node, current)) return true;
             Store.DeleteUploadSession(node.Id);
             CreateConflictCopy(node, current, changes);
         }
         AfterRemoteUpdate(changes, new List<(Node, long)>(), new List<Node>());
         return false;
+    }
+
+    /// <summary>True when the cloud item differs from the version this node was last synchronized with.</summary>
+    private static bool CloudCopyChanged(Node n, CloudItem item)
+    {
+        if (n.RemoteSize != item.Size) return true;
+        if (item.Md5.Length > 0 && n.RemoteHash.Length > 0)
+            return !string.Equals(item.Md5, n.RemoteHash, StringComparison.OrdinalIgnoreCase);
+        // Without a content hash: compare modification times at one-second resolution (TeraBox reports seconds).
+        return n.RemoteModifiedTicks != 0 && item.ModifiedUtc != default &&
+               n.RemoteModifiedTicks / TimeSpan.TicksPerSecond != item.ModifiedUtc.Ticks / TimeSpan.TicksPerSecond;
     }
 
     private void CreateConflictCopy(Node local, CloudItem cloud, List<RemoteChange> changes)
@@ -457,6 +466,7 @@ public sealed class Volume : IDisposable
             n.RemoteName = cloud.Name;
             n.RemoteParentId = dir.Id;
             n.Size = cloud.Size;
+            n.RemoteSize = cloud.Size;
             n.RemoteHash = cloud.Md5;
             n.RemoteModifiedTicks = cloud.ModifiedUtc.Ticks;
             n.LastWriteTime = n.ChangeTime = n.LastAccessTime = FileTime.FromUtc(cloud.ModifiedUtc);
@@ -551,6 +561,7 @@ public sealed class Volume : IDisposable
                         x.RemoteName = item.Name;
                         x.RemoteParentId = parent.Id;
                         x.Size = item.IsDirectory ? 0 : item.Size;
+                        x.RemoteSize = x.Size;
                         x.RemoteHash = item.Md5;
                         x.RemoteModifiedTicks = item.ModifiedUtc.Ticks;
                         x.CreationTime = FileTime.FromUtc(item.CreatedUtc);
