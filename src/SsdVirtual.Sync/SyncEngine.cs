@@ -347,9 +347,10 @@ public sealed class SyncEngine : IDisposable
             if (_uploads.Count >= Math.Max(1, settings.MaxParallelTransfers)) break;
             if (_uploadBackoff.TryGetValue(n.Id, out var b) && b.NextTry > now) continue;
             var node = n;
+            _uploads[node.Id] = Task.CompletedTask; // reserve before starting
             var task = Task.Run(() => UploadAsync(node, ct));
             _uploads[node.Id] = task;
-            task.ContinueWith(_ => { _uploads.TryRemove(node.Id, out Task? _); Wake(); }, TaskScheduler.Default);
+            task.ContinueWith(t => { _uploads.TryRemove(new KeyValuePair<long, Task>(node.Id, t)); Wake(); }, TaskScheduler.Default);
         }
     }
 
@@ -568,7 +569,7 @@ public sealed class SyncEngine : IDisposable
                 }
             });
             _pins[node.Id] = t;
-            t.ContinueWith(_ => { _pins.TryRemove(node.Id, out Task? _); Wake(); }, TaskScheduler.Default);
+            t.ContinueWith(x => { _pins.TryRemove(new KeyValuePair<long, Task>(node.Id, x)); Wake(); }, TaskScheduler.Default);
         }
     }
 

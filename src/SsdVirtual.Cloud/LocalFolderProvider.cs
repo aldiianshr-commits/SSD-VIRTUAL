@@ -133,11 +133,11 @@ public sealed class LocalFolderProvider : ICloudProvider
         {
             var buf = new byte[1 << 20];
             long done = 0;
-            while (true)
+            while (done < request.Length)
             {
                 Check();
-                int n = await request.Content.ReadAsync(buf, ct);
-                if (n == 0) break;
+                int n = await request.Content.ReadAsync(buf.AsMemory(0, (int)Math.Min(buf.Length, request.Length - done)), ct);
+                if (n == 0) throw new IOException("Local file shrank during upload.");
                 await fs.WriteAsync(buf.AsMemory(0, n), ct);
                 done += n;
                 TransferStats.AddUploaded(n);
