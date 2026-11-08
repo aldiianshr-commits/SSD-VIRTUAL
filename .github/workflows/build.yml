@@ -105,21 +105,26 @@ jobs:
       - name: Publish (self-contained, win-x64)
         shell: pwsh
         run: |
-          dotnet publish src\SsdVirtual.Desktop\SsdVirtual.Desktop.csproj -c Release -r win-x64 --self-contained true -p:Version=${{ env.APP_VERSION }} -o out\SsdVirtual
-          dotnet publish src\SsdVirtual.Service\SsdVirtual.Service.csproj -c Release -r win-x64 --self-contained true -p:Version=${{ env.APP_VERSION }} -o out\SsdVirtual
+          function Report($name, $file) { $t = (Get-Content $file -Tail 40 -ErrorAction SilentlyContinue) -join "`n"; $t = $t -replace '%','%25' -replace "`r",'' -replace "`n",'%0A'; if ($t.Length -gt 3500) { $t = $t.Substring($t.Length-3500) }; "::error title=$name failed::$t" }
+          dotnet publish src\SsdVirtual.Desktop\SsdVirtual.Desktop.csproj -c Release -r win-x64 --self-contained true -p:Version=${{ env.APP_VERSION }} -o out\SsdVirtual *> pub1.log
+          if ($LASTEXITCODE -ne 0) { Report "Publish desktop" pub1.log; exit 1 }
+          dotnet publish src\SsdVirtual.Service\SsdVirtual.Service.csproj -c Release -r win-x64 --self-contained true -p:Version=${{ env.APP_VERSION }} -o out\SsdVirtual *> pub2.log
+          if ($LASTEXITCODE -ne 0) { Report "Publish service" pub2.log; exit 1 }
           Copy-Item installer\portable\*.ps1 out\SsdVirtual\
           Copy-Item installer\portable\README-portable.txt out\SsdVirtual\
           Copy-Item LICENSE, THIRD-PARTY-NOTICES.md out\SsdVirtual\
           Copy-Item build\winfsp.msi out\SsdVirtual\winfsp.msi
-          Get-ChildItem out\SsdVirtual\SsdVirtual*.exe | Format-Table Name, Length
+          Get-ChildItem out\SsdVirtual\SsdVirtual*.exe | ForEach-Object { "::notice title=Published::$($_.Name) $([math]::Round($_.Length/1KB)) KB" }
 
       - name: Build installer (Inno Setup)
         shell: pwsh
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
-          & $iscc /Qp "/DAppVersion=${{ env.APP_VERSION }}" "/DSourceDir=$PWD\out\SsdVirtual" "/DOutputDir=$PWD\dist" installer\SsdVirtual.iss
-          if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
+          & $iscc /Qp "/DAppVersion=${{ env.APP_VERSION }}" "/DSourceDir=$PWD\out\SsdVirtual" "/DOutputDir=$PWD\dist" installer\SsdVirtual.iss *> iscc.log
+          if ($LASTEXITCODE -ne 0) {
+            function Report($name, $file) { $t = (Get-Content $file -Tail 40 -ErrorAction SilentlyContinue) -join "`n"; $t = $t -replace '%','%25' -replace "`r",'' -replace "`n",'%0A'; if ($t.Length -gt 3500) { $t = $t.Substring($t.Length-3500) }; "::error title=$name failed::$t" }
+            Report "Inno Setup" iscc.log; exit 1 }
 
       - name: Portable zip
         shell: pwsh
@@ -131,11 +136,11 @@ jobs:
         shell: pwsh
         run: |
           $p = Start-Process dist\SsdVirtual-Setup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/LOG=install.log' -Wait -PassThru
-          if ($p.ExitCode -ne 0) { Get-Content install.log -Tail 50; throw "Setup failed: $($p.ExitCode)" }
+          if ($p.ExitCode -ne 0) { $t = ((Get-Content install.log -Tail 30) -join '%0A'); "::error title=Setup failed $($p.ExitCode)::$t"; exit 1 }
           Start-Sleep 5
           $svc = Get-Service SsdVirtualService
           "::notice title=Installer::Service status after install = $($svc.Status), start type = $($svc.StartType)"
-          if ($svc.Status -ne 'Running') { Get-Content "$env:ProgramData\SsdVirtual\logs\*.log" -ErrorAction SilentlyContinue | Select-Object -Last 40; throw "Service not running" }
+          if ($svc.Status -ne 'Running') { $t = ((Get-Content "$env:ProgramData\SsdVirtual\logs\*.log" -ErrorAction SilentlyContinue | Select-Object -Last 30) -join '%0A'); $e = ((Get-WinEvent -LogName Application -MaxEvents 10 -ErrorAction SilentlyContinue | Where-Object ProviderName -match '.NET|Application Error|SsdVirtual' | ForEach-Object { $_.Message }) -join ' | ') -replace "`r",'' -replace "`n",'%0A'; "::error title=Service not running::$t%0A$e"; exit 1 }
           if (-not (Test-Path "${env:ProgramFiles}\SsdVirtual\SsdVirtual.exe")) { throw "App not installed" }
           $un = "${env:ProgramFiles}\SsdVirtual\unins000.exe"
           $p = Start-Process $un -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait -PassThru
