@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RootNamespace>SsdVirtual.VirtualDrive</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SsdVirtual.Filesystem\SsdVirtual.Filesystem.csproj" />
+    <ProjectReference Include="..\SsdVirtual.GoogleDrive\SsdVirtual.GoogleDrive.csproj" />
+    <ProjectReference Include="..\SsdVirtual.TeraBox\SsdVirtual.TeraBox.csproj" />
+    <ProjectReference Include="..\SsdVirtual.Security\SsdVirtual.Security.csproj" />
+  </ItemGroup>
+</Project>

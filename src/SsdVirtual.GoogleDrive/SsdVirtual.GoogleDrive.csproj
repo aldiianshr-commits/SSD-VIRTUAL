@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>SsdVirtual.GoogleDrive</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SsdVirtual.Cloud\SsdVirtual.Cloud.csproj" />
+  </ItemGroup>
+  <!-- Optional build-time OAuth client (CI writes GoogleClient.g.cs from repository secrets). -->
+  <ItemGroup Condition="Exists('GoogleClient.g.cs')">
+    <Compile Remove="GoogleClient.default.cs" />
+  </ItemGroup>
+</Project>

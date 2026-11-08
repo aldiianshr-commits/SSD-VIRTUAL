@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RootNamespace>SsdVirtual.Filesystem</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Official WinFsp .NET binding (loads winfsp-x64.dll from the installed WinFsp at runtime). -->
+    <PackageReference Include="winfsp.net" Version="2.1.25156" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SsdVirtual.Sync\SsdVirtual.Sync.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RootNamespace>SsdVirtual.Cache</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SsdVirtual.Database\SsdVirtual.Database.csproj" />
+    <ProjectReference Include="..\SsdVirtual.Cloud\SsdVirtual.Cloud.csproj" />
+  </ItemGroup>
+</Project>

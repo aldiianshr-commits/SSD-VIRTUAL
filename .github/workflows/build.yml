@@ -1,0 +1,162 @@
+name: build
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-x64:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      DOTNET_NOLOGO: "1"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      APP_VERSION: "1.0.0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Download WinFsp installer
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Force build | Out-Null
+          gh release download -R winfsp/winfsp -p "winfsp-*.msi" -D build
+          if (-not (Get-ChildItem build\winfsp-*.msi -ErrorAction SilentlyContinue)) { gh release download v2.1 -R winfsp/winfsp -p "winfsp-*.msi" -D build }
+          $msi = (Get-ChildItem build\winfsp-*.msi | Select-Object -First 1)
+          Copy-Item $msi.FullName build\winfsp.msi
+          "::notice title=WinFsp::Using $($msi.Name)"
+
+      - name: Install WinFsp (needed by the drive tests)
+        shell: pwsh
+        run: |
+          $p = Start-Process msiexec.exe -ArgumentList '/i', "`"$PWD\build\winfsp.msi`"", '/qn', '/norestart' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "WinFsp install failed: $($p.ExitCode)" }
+          Get-ItemProperty 'HKLM:\SOFTWARE\WOW6432Node\WinFsp' | Format-List
+
+      - name: Embed Google OAuth client (only if repository secrets exist)
+        shell: pwsh
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+        run: |
+          if ($env:GOOGLE_CLIENT_ID) {
+            $id = $env:GOOGLE_CLIENT_ID.Replace('"','')
+            $secret = "$env:GOOGLE_CLIENT_SECRET".Replace('"','')
+            @"
+          namespace SsdVirtual.GoogleDrive;
+          public static partial class GoogleClient
+          {
+              public const string EmbeddedClientId = "$id";
+              public const string EmbeddedClientSecret = "$secret";
+          }
+          "@ | Set-Content src\SsdVirtual.GoogleDrive\GoogleClient.g.cs
+            "::notice title=Google OAuth::Client embedded from repository secrets"
+          } else { "::notice title=Google OAuth::No embedded client; users enter one in Settings" }
+
+      - name: Restore
+        run: dotnet restore SsdVirtual.sln
+
+      - name: Build
+        run: dotnet build SsdVirtual.sln -c Release --no-restore -p:Version=${{ env.APP_VERSION }}
+
+      - name: Test (unit + real WinFsp drive tests)
+        shell: pwsh
+        env:
+          SSDV_REQUIRE_WINFSP: "1"
+        run: |
+          dotnet test tests\SsdVirtual.Tests\SsdVirtual.Tests.csproj -c Release --no-build `
+            --logger "trx;LogFileName=results.trx" --logger "console;verbosity=normal" --results-directory TestResults
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Report test results
+        if: always()
+        shell: pwsh
+        run: |
+          $trx = Get-ChildItem TestResults -Recurse -Filter *.trx -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $trx) { "::warning title=Tests::No test results found"; exit 0 }
+          [xml]$x = Get-Content $trx.FullName
+          $ns = @{ t = 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010' }
+          $results = Select-Xml -Xml $x -XPath '//t:UnitTestResult' -Namespace $ns | ForEach-Object { $_.Node }
+          $passed = @($results | Where-Object outcome -eq 'Passed').Count
+          $failed = @($results | Where-Object outcome -eq 'Failed')
+          $other = @($results | Where-Object { $_.outcome -ne 'Passed' -and $_.outcome -ne 'Failed' }).Count
+          "::notice title=Test summary::passed=$passed failed=$($failed.Count) other=$other"
+          foreach ($r in $results) {
+            $dur = $r.duration
+            "::notice title=Test $($r.outcome)::$($r.testName) ($dur)"
+          }
+          foreach ($f in $failed) {
+            $msg = "$($f.Output.ErrorInfo.Message) $($f.Output.ErrorInfo.StackTrace)"
+            if ($msg.Length -gt 1500) { $msg = $msg.Substring(0, 1500) }
+            $msg = $msg -replace '%','%25' -replace "`r",'' -replace "`n",'%0A'
+            "::error title=FAILED $($f.testName)::$msg"
+          }
+          $out = @($results | ForEach-Object { $_.Output.StdOut } | Where-Object { $_ }) -join "`n"
+          if ($out) { $o = ($out -replace '%','%25' -replace "`r",'' -replace "`n",'%0A'); if ($o.Length -gt 3000) { $o = $o.Substring(0,3000) }; "::notice title=Test output::$o" }
+
+      - name: Publish (self-contained, win-x64)
+        shell: pwsh
+        run: |
+          dotnet publish src\SsdVirtual.Desktop\SsdVirtual.Desktop.csproj -c Release -r win-x64 --self-contained true -p:Version=${{ env.APP_VERSION }} -o out\SsdVirtual
+          dotnet publish src\SsdVirtual.Service\SsdVirtual.Service.csproj -c Release -r win-x64 --self-contained true -p:Version=${{ env.APP_VERSION }} -o out\SsdVirtual
+          Copy-Item installer\portable\*.ps1 out\SsdVirtual\
+          Copy-Item installer\portable\README-portable.txt out\SsdVirtual\
+          Copy-Item LICENSE, THIRD-PARTY-NOTICES.md out\SsdVirtual\
+          Copy-Item build\winfsp.msi out\SsdVirtual\winfsp.msi
+          Get-ChildItem out\SsdVirtual\SsdVirtual*.exe | Format-Table Name, Length
+
+      - name: Build installer (Inno Setup)
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
+          & $iscc /Qp "/DAppVersion=${{ env.APP_VERSION }}" "/DSourceDir=$PWD\out\SsdVirtual" "/DOutputDir=$PWD\dist" installer\SsdVirtual.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
+
+      - name: Portable zip
+        shell: pwsh
+        run: |
+          Compress-Archive -Path out\SsdVirtual\* -DestinationPath dist\SsdVirtual-Portable-x64.zip -CompressionLevel Optimal
+          Get-ChildItem dist | ForEach-Object { "::notice title=Artifact::$($_.Name) $([math]::Round($_.Length/1MB,1)) MB" }
+
+      - name: Installer smoke test (install, service running, uninstall)
+        shell: pwsh
+        run: |
+          $p = Start-Process dist\SsdVirtual-Setup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/LOG=install.log' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Get-Content install.log -Tail 50; throw "Setup failed: $($p.ExitCode)" }
+          Start-Sleep 5
+          $svc = Get-Service SsdVirtualService
+          "::notice title=Installer::Service status after install = $($svc.Status), start type = $($svc.StartType)"
+          if ($svc.Status -ne 'Running') { Get-Content "$env:ProgramData\SsdVirtual\logs\*.log" -ErrorAction SilentlyContinue | Select-Object -Last 40; throw "Service not running" }
+          if (-not (Test-Path "${env:ProgramFiles}\SsdVirtual\SsdVirtual.exe")) { throw "App not installed" }
+          $un = "${env:ProgramFiles}\SsdVirtual\unins000.exe"
+          $p = Start-Process $un -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait -PassThru
+          Start-Sleep 3
+          if (Get-Service SsdVirtualService -ErrorAction SilentlyContinue) { throw "Service still registered after uninstall" }
+          "::notice title=Installer::Uninstall removed the service"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: SsdVirtual-win-x64
+          path: |
+            dist/SsdVirtual-Setup.exe
+            dist/SsdVirtual-Portable-x64.zip
+            out/SsdVirtual/SsdVirtual.exe
+            out/SsdVirtual/SsdVirtualService.exe
+          if-no-files-found: warn
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: TestResults
+          if-no-files-found: ignore

@@ -1,0 +1,9 @@
+bin/
+obj/
+out/
+dist/
+build/
+TestResults/
+*.user
+.vs/
+src/SsdVirtual.GoogleDrive/GoogleClient.g.cs
