@@ -97,7 +97,7 @@ procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if CurUninstallStep = usPostUninstall then
     MsgBox('SsdVirtual was removed. Your cloud files were not touched. Local cache and settings remain in ' +
-      ExpandConstant('{commonappdata}\SsdVirtual') + ' and the cache folder (default C:\SsdVirtualCache) so nothing that was not uploaded yet is lost. Delete them manually if you no longer need them.' +
-      #13#10#13#10 + 'WinFsp stays installed because other programs may use it; remove it from Apps & features if you want.',
+      ExpandConstant('{commonappdata}\SsdVirtual') + ' and the cache folder (default C:\SsdVirtualCache) so nothing that was not uploaded yet is lost. Delete them manually if you no longer need them.' + #13#10#13#10 +
+      'WinFsp stays installed because other programs may use it; remove it from Apps & features if you want.',
       mbInformation, MB_OK);
 end;
